@@ -1,0 +1,4 @@
+interface:
+  display_name: "BLP1 Converter"
+  short_description: "Convert Warcraft III BLP1 textures to and from PNG."
+  default_prompt: "Convert Warcraft III BLP1 textures and PNG files using the bundled conversion script."
