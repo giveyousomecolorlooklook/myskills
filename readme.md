@@ -2,4 +2,4 @@
 
 ## blp1-converter
 
-blp <==> png 转换工具
+blp(blp1) <==> png 转换工具
