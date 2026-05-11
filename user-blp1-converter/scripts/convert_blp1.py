@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops
 except ImportError as exc:  # pragma: no cover - environment guidance
     raise SystemExit(
         "Pillow is required. Install it with: python -m pip install pillow"
@@ -102,25 +102,40 @@ def _decode_jpeg_blp(
     if offset + size > len(data):
         raise BlpError("BLP JPEG mip data extends past end of file")
 
+    mip_w, mip_h = _mip_size(width, height, level)
+    pixels = mip_w * mip_h
+    expected_alpha = math.ceil(pixels * alpha_bits / 8) if alpha_bits else 0
+
     jpeg_prefix = data[header_start:header_end]
     mip_payload = data[offset : offset + size]
     jpeg_bytes = jpeg_prefix + mip_payload
-    image = Image.open(io.BytesIO(jpeg_bytes)).convert("RGBA")
+    source_image = Image.open(io.BytesIO(jpeg_bytes)).copy()
 
-    mip_w, mip_h = _mip_size(width, height, level)
-    if image.size != (mip_w, mip_h):
-        image = image.resize((mip_w, mip_h), Image.Resampling.LANCZOS)
+    if source_image.size != (mip_w, mip_h):
+        source_image = source_image.resize((mip_w, mip_h), Image.Resampling.LANCZOS)
 
-    if alpha_bits:
-        eoi = _find_jpeg_eoi(jpeg_bytes)
-        if eoi is not None:
-            trailing = jpeg_bytes[eoi:]
-            pixels = mip_w * mip_h
-            expected = pixels if alpha_bits == 8 else math.ceil(pixels * alpha_bits / 8)
-            if len(trailing) >= expected:
-                alpha = Image.new("L", (mip_w, mip_h))
-                alpha.putdata(_unpack_alpha(trailing, pixels, alpha_bits))
-                image.putalpha(alpha)
+    eoi = _find_jpeg_eoi(jpeg_bytes)
+    trailing = jpeg_bytes[eoi:] if eoi is not None else b""
+    has_external_alpha = bool(alpha_bits and len(trailing) >= expected_alpha)
+
+    if source_image.mode == "CMYK" and not has_external_alpha:
+        c, m, y, k = source_image.split()
+        image = Image.merge(
+            "RGBA",
+            (
+                ImageChops.invert(y),
+                ImageChops.invert(m),
+                ImageChops.invert(c),
+                ImageChops.invert(k) if alpha_bits else Image.new("L", source_image.size, 255),
+            ),
+        )
+    else:
+        image = source_image.convert("RGBA")
+
+    if has_external_alpha:
+        alpha = Image.new("L", (mip_w, mip_h))
+        alpha.putdata(_unpack_alpha(trailing, pixels, alpha_bits))
+        image.putalpha(alpha)
 
     return image
 
@@ -276,8 +291,19 @@ def _normalize_blp1_jpeg(data: bytes) -> bytes:
 
 
 def _encode_jpeg_payload(image: Image.Image, quality: int) -> bytes:
+    image = image.convert("RGBA")
+    r, g, b, a = image.split()
+    encoded = Image.merge(
+        "CMYK",
+        (
+            ImageChops.invert(b),
+            ImageChops.invert(g),
+            ImageChops.invert(r),
+            ImageChops.invert(a),
+        ),
+    )
     buffer = io.BytesIO()
-    image.convert("CMYK").save(buffer, format="JPEG", quality=quality, optimize=False)
+    encoded.save(buffer, format="JPEG", quality=quality, optimize=False)
     return _normalize_blp1_jpeg(buffer.getvalue())
 
 
@@ -311,19 +337,12 @@ def write_blp1_png_source(
     has_alpha = alpha_min < 255
     alpha_bits = 8 if has_alpha else 0
 
-    encoded_mips = []
     jpeg_chunks = []
-    alpha_chunks = []
     for mip in mips:
         jpeg_chunks.append(_encode_jpeg_payload(mip, quality))
-        if alpha_bits:
-            alpha_chunks.append(mip.getchannel("A").tobytes())
-        else:
-            alpha_chunks.append(b"")
 
     shared_header = _shared_prefix(jpeg_chunks, MAX_SHARED_JPEG_HEADER)
-    for jpeg_chunk, alpha_chunk in zip(jpeg_chunks, alpha_chunks):
-        encoded_mips.append(jpeg_chunk[len(shared_header) :] + alpha_chunk)
+    encoded_mips = [jpeg_chunk[len(shared_header) :] for jpeg_chunk in jpeg_chunks]
 
     offsets = [0] * MAX_MIPS
     sizes = [0] * MAX_MIPS

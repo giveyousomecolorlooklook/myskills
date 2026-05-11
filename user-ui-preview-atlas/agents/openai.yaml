@@ -1,0 +1,4 @@
+interface:
+  display_name: "User UI Preview Atlas"
+  short_description: "从 UI 预览图生成可切图拆件汇总图"
+  default_prompt: "Use $user-ui-preview-atlas to generate a sliced UI component atlas from this preview image."

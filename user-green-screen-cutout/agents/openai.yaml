@@ -1,0 +1,4 @@
+interface:
+  display_name: "User Green Screen Cutout"
+  short_description: "Clean chroma-key cutouts with alpha PNG output"
+  default_prompt: "Use $user-green-screen-cutout to remove chroma-key backgrounds from workspace images and save clean alpha PNG cutouts."

@@ -1,0 +1,6 @@
+interface:
+  display_name: "User Imagegen"
+  short_description: "Generate or edit images through a modifiable third-party skill copy"
+  icon_small: "./assets/imagegen-small.svg"
+  icon_large: "./assets/imagegen.png"
+  default_prompt: "Use $user-imagegen to make or edit an image for this project."

@@ -1,0 +1,4 @@
+{
+  "api_key": "your-provider-api-key",
+  "base_url": "https://provider.example.com/v1"
+}
